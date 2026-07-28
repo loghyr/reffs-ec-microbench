@@ -1,0 +1,26 @@
+# Build outputs
+*.o
+*.lo
+*.la
+*.a
+.libs/
+.deps/
+build/
+
+# Autotools generated files
+Makefile
+Makefile.in
+configure
+config.h
+config.h.in
+config.status
+config.log
+aclocal.m4
+autom4te.cache/
+libtool
+stamp-h1
+*~
+
+# Editor scratch
+.*.swp
+.DS_Store
