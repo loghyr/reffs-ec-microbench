@@ -43,6 +43,18 @@ is complete and this file is retained as a historical marker.
   autotools tarball is the primary artifact for now).
 - More extensive CI matrix (FreeBSD, aarch64 Linux, x86_64 Linux
   with + without NASM).
+- **Vendored-SIMD test triple on x86_64 CI**: `snapraid_test`,
+  `isa_l_test`, `linux_md_test` all crash with SIGSEGV on GitHub
+  Actions `ubuntu-latest` runners (they pass on real x86 hardware
+  via reffs's nightly on shadow + garbo).  The CI workflow
+  currently narrows to the seven portable-C tests
+  (`gf/matrix/mirror/mojette/mojette_encoding/rs/xor`) on Linux,
+  which prove the build and core math.  Root-cause options:
+  runner-specific CPU quirk, alignment assumption in the vendored
+  dispatch code, or a build-time flag mismatch vs the reffs
+  parent's proven-good build.  Not blocking v0.1.0 -- users run
+  the bench on their own hardware -- but worth chasing before the
+  next release.
 
 ## Related
 
