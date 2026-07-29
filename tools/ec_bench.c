@@ -94,17 +94,27 @@ static double mb_per_sec(int k, size_t shard_len, uint64_t elapsed_ns)
 	return (bytes / secs) / (1024.0 * 1024.0);
 }
 
-/* Time encode over `iters` runs.  Returns min ns per iter. */
-static uint64_t time_encode(struct ec_encoding *c, uint8_t **data,
-			    uint8_t **parity, size_t shard_len, int iters,
-			    int warmup)
+/* Time encode over `iters` runs.  Returns min ns per iter.
+ * Non-systematic encoders overwrite data[i] with projections in place,
+ * so subsequent encode calls would transform garbage.  Reset data[i]
+ * from `orig` before every call (including warmup) so every timed
+ * encode starts from the same authentic input. */
+static uint64_t time_encode(struct ec_encoding *c, int k, uint8_t **data,
+			    uint8_t **orig, uint8_t **parity, size_t shard_len,
+			    int iters, int warmup)
 {
-	for (int i = 0; i < warmup; i++)
+	for (int i = 0; i < warmup; i++) {
+		for (int j = 0; j < k; j++)
+			memcpy(data[j], orig[j], shard_len);
 		c->ec_encode(c, data, parity, shard_len);
+	}
 
 	uint64_t best = UINT64_MAX;
 
 	for (int i = 0; i < iters; i++) {
+		for (int j = 0; j < k; j++)
+			memcpy(data[j], orig[j], shard_len);
+
 		uint64_t t0 = now_ns();
 
 		c->ec_encode(c, data, parity, shard_len);
@@ -119,22 +129,28 @@ static uint64_t time_encode(struct ec_encoding *c, uint8_t **data,
 /* Time decode with shard[erase_idx] dropped.  All shards are set up
  * fresh each iter (memcpy from snapshot) so consecutive iters do not
  * observe already-recovered state. */
+static size_t bench_shard_bytes(struct ec_encoding *c, int shard_idx,
+				size_t data_shard_len);
+
 static uint64_t time_decode(struct ec_encoding *c, uint8_t **shards,
 			    uint8_t **snapshot, int k, int m, int erase_idx,
 			    size_t shard_len, int iters, int warmup)
 {
 	int n = k + m;
 	bool *present = calloc(n, sizeof(*present));
+	size_t *ssize = calloc(n, sizeof(*ssize));
 
-	for (int i = 0; i < n; i++)
+	for (int i = 0; i < n; i++) {
 		present[i] = true;
+		ssize[i] = bench_shard_bytes(c, i, shard_len);
+	}
 	present[erase_idx] = false;
 
 	/* Warmup */
 	for (int w = 0; w < warmup; w++) {
 		for (int i = 0; i < n; i++)
-			memcpy(shards[i], snapshot[i], shard_len);
-		memset(shards[erase_idx], 0, shard_len);
+			memcpy(shards[i], snapshot[i], ssize[i]);
+		memset(shards[erase_idx], 0, ssize[erase_idx]);
 		c->ec_decode(c, shards, present, shard_len);
 	}
 
@@ -142,8 +158,8 @@ static uint64_t time_decode(struct ec_encoding *c, uint8_t **shards,
 
 	for (int i = 0; i < iters; i++) {
 		for (int j = 0; j < n; j++)
-			memcpy(shards[j], snapshot[j], shard_len);
-		memset(shards[erase_idx], 0, shard_len);
+			memcpy(shards[j], snapshot[j], ssize[j]);
+		memset(shards[erase_idx], 0, ssize[erase_idx]);
 
 		uint64_t t0 = now_ns();
 
@@ -153,6 +169,7 @@ static uint64_t time_decode(struct ec_encoding *c, uint8_t **shards,
 		if (elapsed < best)
 			best = elapsed;
 	}
+	free(ssize);
 	free(present);
 	return best;
 }
@@ -202,31 +219,44 @@ static void bench_one(const char *label, struct ec_encoding *c, int k, int m,
 
 	fill_shards(data, k, shard_len);
 
+	/* Preserve original data before encode.  Non-systematic encoders
+	 * overwrite data[i] with projections, so we need the untouched
+	 * originals both to reset data before each timed encode iter and
+	 * to check what decode recovered after the timed decode loop. */
+	uint8_t **orig = calloc(k, sizeof(*orig));
+
+	for (int i = 0; i < k; i++) {
+		orig[i] = aligned_alloc(64, shard_len);
+		memcpy(orig[i], data[i], shard_len);
+	}
+
 	uint64_t enc_ns =
-		time_encode(c, data, parity, shard_len, iters, warmup);
+		time_encode(c, k, data, orig, parity, shard_len, iters, warmup);
 
 	/* Snapshot the encoded shards so decode sees an authentic input.
-	 * Data shards are shard_len; parity shards use the encoder's
-	 * ec_shard_size (Mojette non-systematic can be larger). */
-	for (int i = 0; i < k; i++)
-		memcpy(snapshot[i], data[i], shard_len);
-	for (int i = 0; i < m; i++) {
-		size_t sz = c->ec_shard_size ?
-				    c->ec_shard_size(c, k + i, shard_len) :
-				    shard_len;
-
-		memcpy(snapshot[k + i], parity[i], sz);
-	}
+	 * Both data and parity use bench_shard_bytes so nonsys "data"
+	 * shards (which are projections at nbins*8, not shard_len) get
+	 * fully snapshotted. */
+	for (int i = 0; i < k + m; i++)
+		memcpy(snapshot[i], (i < k ? data[i] : parity[i - k]),
+		       bench_shard_bytes(c, i, shard_len));
 
 	/* Decode with one data shard missing (index 1 -- avoid 0 which
 	 * often triggers a fast-path in some encodings). */
 	uint64_t dec_ns = time_decode(c, shards, snapshot, k, m, 1, shard_len,
 				      iters, warmup);
 
+	int correct = memcmp(shards[1], orig[1], shard_len) == 0;
+
+	for (int i = 0; i < k; i++)
+		free(orig[i]);
+	free(orig);
+
 	printf("%-14s k=%d m=%d size=%7zu  enc %6.1f MB/s (%6" PRIu64
-	       " ns)  dec %6.1f MB/s (%6" PRIu64 " ns)\n",
+	       " ns)  dec %6.1f MB/s (%6" PRIu64 " ns)%s\n",
 	       label, k, m, shard_len, mb_per_sec(k, shard_len, enc_ns), enc_ns,
-	       mb_per_sec(k, shard_len, dec_ns), dec_ns);
+	       mb_per_sec(k, shard_len, dec_ns), dec_ns,
+	       correct ? "" : "  CORRUPT");
 
 	for (int i = 0; i < k; i++) {
 		free(data[i]);

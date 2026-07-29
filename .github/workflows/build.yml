@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Tom Haynes <loghyr@gmail.com>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool m4 nasm \
+            libcheck-dev pkg-config
+      - name: Bootstrap
+        run: autoreconf -fi
+      - name: Configure
+        run: mkdir build && cd build && ../configure --disable-shared
+      - name: Build
+        run: make -C build -j$(nproc)
+      - name: Unit tests
+        run: make -C build/lib/ec check -j$(nproc)
+      - name: Smoke bench
+        run: ./build/tools/ec_bench --iters 5 --sizes 4096,65536
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        # NASM is optional on macOS -- without it ISA-L falls back
+        # to portable-C.  Include it so CI exercises the SIMD path
+        # too on x86_64 runners; on arm64 macOS runners NASM is
+        # present but unused (ISA-L x86 SIMD gate requires x86_64
+        # AND NASM).
+        run: |
+          brew install autoconf automake libtool nasm check pkg-config
+      - name: Bootstrap
+        run: autoreconf -fi
+      - name: Configure
+        run: mkdir build && cd build && ../configure --disable-shared
+      - name: Build
+        run: make -C build -j$(sysctl -n hw.ncpu)
+      - name: Unit tests
+        run: make -C build/lib/ec check -j$(sysctl -n hw.ncpu)
+      - name: Smoke bench
+        run: ./build/tools/ec_bench --iters 5 --sizes 4096,65536

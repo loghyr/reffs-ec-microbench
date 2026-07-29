@@ -1,0 +1,21 @@
+SPDX-FileCopyrightText: 2026 Tom Haynes <loghyr@gmail.com>
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+Primary author + maintainer
+---------------------------
+Tom Haynes <loghyr@gmail.com>
+
+Reffs-original erasure-coding code (lib/ec/, from which this
+project is carved) inherits per-file copyright headers.  Notable
+contributors traceable via git log on the source project include:
+
+  Andrea Mazzoleni  (vendored SnapRAID raid/ library)
+  H. Peter Anvin    (vendored Linux md/raid6 library)
+  Intel Corp.       (vendored ISA-L erasure_code/ library)
+  Pierre Evenou     (Mojette relicensing grant; see
+                     LICENSE-EXCEPTIONS.txt for the AGPL-3.0
+                     re-licensing scope)
+  Jeanpierre Guedon (Mojette transform, MOJETTE-1995)
+
+Every source file carries its own SPDX-FileCopyrightText header;
+this AUTHORS file is a summary, not a substitute.
