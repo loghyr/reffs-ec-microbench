@@ -27,6 +27,15 @@ jobs:
         run: make -C build -j$(nproc)
       - name: Unit tests
         run: make -C build/lib/ec check -j$(nproc)
+      - name: Dump test-suite log on failure
+        if: failure()
+        run: |
+          echo '===test-suite.log==='
+          cat build/lib/ec/tests/test-suite.log || true
+          echo '===individual .log files==='
+          for f in build/lib/ec/tests/*.log; do
+            echo "--- $f ---"; cat "$f" || true
+          done
       - name: Smoke bench
         run: ./build/tools/ec_bench --iters 5 --sizes 4096,65536
 
