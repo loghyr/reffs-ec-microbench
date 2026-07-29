@@ -54,7 +54,17 @@ libreffs_snapraid_raid_la_SOURCES = \
 # reason we do not use -fno-sanitize=alignment (which loses to
 # the later -fsanitize=undefined in top-level CFLAGS).
 AM_CPPFLAGS = -Dasm=__asm__
+
+# -fsanitize-ignorelist= is a clang-only flag.  Under GCC (the
+# default cc on ubuntu-latest CI) it is a fatal-error unrecognised
+# option.  The configure-time probe HAVE_UBSAN_IGNORELIST is only
+# true on clang; gate the flag off elsewhere.  Under GCC UBSan
+# does not check this specific alignment anyway.
+if HAVE_UBSAN_IGNORELIST
 AM_CFLAGS = -Wno-unused-parameter -Wno-unused-function \
 	-fsanitize-ignorelist=$(srcdir)/ubsan-ignorelist.txt
+else
+AM_CFLAGS = -Wno-unused-parameter -Wno-unused-function
+endif
 
 EXTRA_DIST = NOTICE.md ubsan-ignorelist.txt

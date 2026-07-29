@@ -60,6 +60,29 @@ dnl --- HAVE_ASSEMBLY for vendored SnapRAID raid/ (from reffs) ---------
 AC_DEFINE([HAVE_ASSEMBLY], [1],
     [Define to 1 to enable inline assembly in the vendored SnapRAID raid/ library.])
 
+dnl --- -fsanitize-ignorelist= support (clang only; gcc rejects) -------
+dnl The snapraid-raid/Makefile.am references this flag; if the compiler
+dnl does not accept it (gcc), leave the substitution empty so the
+dnl vendor Makefile does not pass a flag that will fatal-error the
+dnl build.  Under UBSan+clang this preserves the alignment-check
+dnl carve-out described in vendor/snapraid-raid/NOTICE.md.
+UBSAN_IGNORELIST_CFLAGS=""
+AC_MSG_CHECKING([whether $CC supports -fsanitize-ignorelist=])
+echo "" > conftest.ignorelist
+saved_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -fsanitize-ignorelist=conftest.ignorelist"
+AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([], [])],
+    [AC_MSG_RESULT([yes])
+     UBSAN_IGNORELIST_SUPPORTED=yes],
+    [AC_MSG_RESULT([no])
+     UBSAN_IGNORELIST_SUPPORTED=no])
+CFLAGS="$saved_CFLAGS"
+rm -f conftest.ignorelist
+AC_SUBST([UBSAN_IGNORELIST_SUPPORTED])
+AM_CONDITIONAL([HAVE_UBSAN_IGNORELIST],
+    [test "x$UBSAN_IGNORELIST_SUPPORTED" = "xyes"])
+
 dnl --- AVX2 support for Mojette SIMD fast path (from reffs) -----------
 AVX2_CFLAGS=""
 AC_MSG_CHECKING([whether $CC supports -mavx2])
